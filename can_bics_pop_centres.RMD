@@ -1,0 +1,339 @@
+---
+title: "OSM Can-BICS for CSDs associated with medium and large population centres"
+author: "Colin Ferster colin_ferster_2@sfu.ca"
+date: "18/03/2022"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+library(sf)
+library(tidyverse)
+library(cancensus)
+library(lwgeom)
+library(knitr)
+
+options(scipen=999) # no scientific notation
+
+can_BICS <- st_read("C:/Users/16043/Dropbox/Can_BICS_project/osm_infrastructure/data/national/OSM_CAN_BICS_latest.shp")
+```
+
+## Description:
+OSM Can-BICS is a national bicycling infrastructure network dataset based on a 
+classification of [OpenStreetMap (OSM)](https://www.openstreetmap.org) 
+data using [Can-BICS](https://www.canada.ca/en/public-health/services/reports-publications/health-promotion-chronic-disease-prevention-canada-research-policy-practice/vol-40-no-9-2020/canbics-classification-system-naming-convention-cycling-infrastructure.html) comfort classes and 
+infrastructure categories as consistent criteria and data acquired on 
+January 25, 2022. 
+
+Can-BICS is a three-tiered classification of five 
+infrastructure types developed to synthesize language used in Canadian open 
+data, engineering design guides, and recent active transportation research.
+
+### Can-BICS comfort classes and infrastructure types
+
+1) **High comfort**: low-stress cycling facilities are comfortable for most people.
+    * ***Bike path***: A paved path exclusively for cyclists away from roadways.
+    * ***Cycle track***: A roadway lane exclusively for cyclists and physically separated from both motor vehicles and the sidewalk.
+    * ***Local street bikeway***: A local street (no centre line or lanes) where cyclists share the roadway with motor vehicles. Traffic-calming elements limit motor vehicle speeds and volumes and inhibit their through travel.
+
+2) **Medium comfort:** Low-to-medium stress cycling facilities are considered comfortable by some people.
+    * ***Multi-use path***: A two-way paved path shared by cyclists, pedestrians and other users. May be located adjacent to a roadway, if physically segregated from cars and trucks.
+
+3) **Low comfort**: These cycling facilities are high stress and comfortable for few people.
+    * ***Painted lane***: A painted lane along a roadway that is designated by bicycle and diamond pavement markings and signs as exclusively for cyclists, with no physical segregation from cars and trucks.
+
+4) **Non-conforming**: Cycling facilities that do not meet national guidelines. Usually not included in analyses, but may provide connectivity and recreation.
+    * ***Non-conforming trail***: An unpaved or narrow (<3 m) path shared by cyclists, pedestrians and other users. Includes hiking and mountain biking trails, desire paths, and sidewalks where bike are permitted.
+    * ***Non-conforming major road***: A major street (multiple lanes) where cyclists share the roadway with motor vehicles (i.e., "sharrows").
+    * ***Non-conforming other***: All other segments where bikes are indicated on OSM without sufficient information to assign a more specific label.
+
+## Field definitions
+File: `Can_BICS_pop_centres_csds.shp`
+
+Projection: ` NAD83 / Statistics Canada Lambert`
+
+Field definitions:
+
+* CSDNAME: Statistics Canada Census subdivision (CSD) name.
+* CSDUID: Statistics Canada Census subdivision (CSD) ID.
+* PRNAME: Statistics Canada Census province (PR) name.
+* PRUID: Statistics Canada Census province (PR) ID.
+* osm_id: OpenStreetMap ID. Note that these can change over time.
+* osm_name: OpenStreetMap name.
+* CBICS_infr: Can-BICS infrastructure type.
+* CBICS_comf: Can-BICS comfort class.
+
+More details are available on [ArcGIS Online](https://arcg.is/1X9iem0).
+
+## Spatial extent
+The Building for Cycling in Canadian Cities study encompasses all medium or large 
+Canada Census Population Centres (population greater than or equal to 30,000). 
+OSM Can-BICS was extracted for all Canada Census Subdivisions that intersect
+medium or large Canada Census Population Centres (population greater than or 
+equal to 30,000). 
+
+All digital boundary files were sourced from [Statistics Canada](https://www12.statcan.gc.ca/census-recensement/2011/geo/bound-limit/bound-limit-2016-eng.cfm).
+
+
+The data were extracted for CSDs because it is easier to obtain census data for
+CSDs than for Population Centres and CSDs represent municipalities, which are 
+practical units for study and outreach.
+
+```{r figure_1, echo=FALSE, fig.cap="Figure 1. An example of the spatial relationships that define the study extent. We selected all CSDs intersecting one or more medium or large Population Centres. Population Centres are shown in dark grey, CMAs are shown with similar fill colours, and CSDs are shown as the lines within the CMAs. The selected OSM Can-BICS features are shown in red.", out.width = '100%'}
+knitr::include_graphics("spatial_subset_example.png")
+```
+
+## Medium and large population centres
+
+Population Centres are places with population densities of at least 400 people / 
+km<sup>2</sup>. 
+
+Population centres are classified into three groups based on population:
+
+* small: population 1,000 to 29,999 ([PCCLASS 2](https://www12.statcan.gc.ca/census-recensement/2016/ref/dict/tab/t1_13-eng.cfm))
+* medium: population 30,000 99,999 ([PCCLASS 3](https://www12.statcan.gc.ca/census-recensement/2016/ref/dict/tab/t1_13-eng.cfm))
+* large: population 100,000 or more ([PCCLASS 4](https://www12.statcan.gc.ca/census-recensement/2016/ref/dict/tab/t1_13-eng.cfm))
+
+```{r pop_centres, echo = F, include = F}
+population_centres <- st_read("C:/Documents and Settings/16043/Documents/basemap/census_2016/census_population_centres/lpc_000a16a_e.shp")
+
+population_centres_select <- population_centres %>%
+  filter(PCCLASS %in% c(3,4)) %>%
+  arrange(PCNAME)
+```
+
+This study encompasses all medium and large population centres (n = `r nrow(population_centres_select)`).
+
+## Census Subdivision
+
+The goal is to extract Can-BICS for Census Subdivisions (CSDs) covering the 
+population centres. CSDs are linked to population centres via the larger Census 
+Metropolitan Areas and Census Agglomerations (CMA's); however CMAs include large 
+areas that do not directly intersect the population centres.
+
+* CMAs are one or more neighbouring municipalities centreing on a core (the 
+core is the population centre).
+* CSDs are municipalities, or equivalent.
+
+```{r csds_cmas, echo = FALSE, include = FALSE}
+cmas <- st_read("C:/Documents and Settings/16043/Documents/basemap/census_2016/census_metro_areas/lcma000a16a_e.shp")
+cmas_pop_centres <- cmas %>%
+  filter(CMAUID %in% population_centres_select$CMAUID)
+
+csds <- st_read("C:/Documents and Settings/16043/Documents/basemap/census_2016/census_subdivision_boundary/lcsd000a16a_e.shp")
+
+csds_in_pop_centres <- csds %>%
+  st_intersection(population_centres_select) 
+
+csds_in_pop_centres <- csds_in_pop_centres %>%
+  mutate(area = as.numeric(st_area(csds_in_pop_centres))) %>%
+  filter(area > 0)
+
+csds_select <- csds %>%
+  filter(CSDUID %in% csds_in_pop_centres$CSDUID)
+
+```
+This study encompasses n = `r nrow(cmas_pop_centres)` CMAs containing one or 
+more population centres and n = `r nrow(csds_select)` CSDs intersecting one or 
+more population centres.
+
+Files: 
+* `csds_2016_selected.shp`
+* `csds_2016_selected.csv`
+
+Description: CSDs that intersect medium and large population centres. Original
+data from Statistics Canada, 2016 Census Geography digital boundary file. See
+Statistics Canada for field descriptions. Population and journey to work mode 
+share from [censusmapper.ca](https://censusmapper.ca/).
+
+## Map of selection
+
+```{r map, echo = F, message = FALSE, warning = FALSE, fig.cap = "Interactive map of spatial relationships that define the study extent."}
+library(leaflet)
+
+pcs_more_than1csd <- csds_in_pop_centres %>%
+  group_by(PCNAME, PCUID) %>%
+  summarize(n_csds = n()) %>%
+  filter(n_csds > 1) %>%
+  st_centroid()
+
+pcs_more_than1csd <- pcs_more_than1csd %>%
+  rowwise() %>%
+  mutate(intersecting_csds = list(csds_in_pop_centres[which(csds_in_pop_centres$PCUID %in% PCUID), ]$CSDNAME)) %>%
+  ungroup()
+
+pcs_more_than1csd$intersecting_csds_string <- NA
+pcs_more_than1csd$intersecting_csds_string <- as.character(pcs_more_than1csd$intersecting_csds_string)
+for(i in 1:nrow(pcs_more_than1csd)){
+  pcs_more_than1csd[i, ]$intersecting_csds_string <- paste0("Names of intersecting CSDs: ", paste0(sort(unlist(pcs_more_than1csd[i, ]$intersecting_csds)), collapse = ", "))
+}
+
+
+
+pcs_more_than1csd <- pcs_more_than1csd %>%
+  mutate(description = paste0("<b>Population centre intersecting more than 1 CSD.</b><br/>",
+                                        "Name: ", pcs_more_than1csd$PCNAME, "<br/>",
+                                        "Count of intersecting CSDs: ", pcs_more_than1csd$n_csds, "<br/>",
+                              pcs_more_than1csd$intersecting_csds_string))
+
+pcs_more_than1csd$description <- paste0("<b>Population centre intersecting more than 1 census subdivision.</b><br/>",
+                                        "Name: ", pcs_more_than1csd$PCNAME, "<br/>",
+                                        "Count of intersecting CSDs: ", pcs_more_than1csd$n_csds, "<br/>",
+                                        pcs_more_than1csd$intersecting_csds_string)
+
+
+
+leaflet(population_centres %>% st_transform(4326)) %>%
+  addTiles() %>%
+  addCircleMarkers(data = pcs_more_than1csd %>% st_transform(4326),
+                   label = ~paste0("PCs with more than 1 CSD: ", PCNAME),
+                   popup = ~description,
+                   group = "Selected PCs with more than 1 CSD") %>%
+  addPolygons(
+    data = cmas_pop_centres %>% st_transform(4326),
+    fillColor = "blue",
+    fillOpacity = 0.2,
+    color = "blue",
+    label = ~paste0("CMA with large or medium pop centre: ", CMANAME),
+    group = "Selected CMAs and CAs",
+    highlightOptions = highlightOptions(color = "black", weight = 2,
+      bringToFront = TRUE)) %>%
+  addPolygons(
+    data = csds_select %>% st_transform(4326),
+    fillColor = "green",
+    fillOpacity = 0.2,
+    color = "green",
+    label = ~paste0("Selected CSD: ", CSDNAME),
+    group = "Selected Census Subdivisions",
+    highlightOptions = highlightOptions(color = "black", weight = 2,
+      bringToFront = TRUE)) %>%
+  addPolygons(
+    data = population_centres[population_centres$PCCLASS %in% 2, ]  %>% st_transform(4326),
+    fillColor = "grey",
+    color = "grey",
+    label = ~paste0("Small population centre: ", PCNAME),
+    group = "Population Centres",
+    highlightOptions = highlightOptions(color = "black", weight = 2,
+      bringToFront = TRUE)) %>%
+  addPolygons(
+    data = population_centres[population_centres$PCCLASS %in% 3, ]  %>% st_transform(4326),
+    fillColor = "orange",
+    color = "orange",
+    label = ~paste0("Medium population centre: ", PCNAME),
+    group = "Population Centres",
+    highlightOptions = highlightOptions(color = "black", weight = 2,
+      bringToFront = TRUE)) %>%
+  addPolygons(
+    data = population_centres[population_centres$PCCLASS %in% 4, ]  %>% st_transform(4326),
+    fillColor = "red",
+    color = "red",
+    label = ~paste0("Large population centre: ", PCNAME),
+    group = "Population Centres",
+    highlightOptions = highlightOptions(color = "black", weight = 2,
+      bringToFront = TRUE)) %>%
+  addLayersControl(
+    overlayGroups = c("Population Centres", 
+                   "Selected Census Subdivisions", 
+                   "Selected CMAs and CAs",
+                   "Selected PCs with more than 1 CSD"),
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>%
+  hideGroup("Selected CMAs and CAs") %>%
+  hideGroup("Selected PCs with more than 1 CSD")
+   
+
+```
+
+
+## OSM Can-BICS
+```{r osm_can_bics, echo = FALSE, include = FALSE}
+can_BICS <- st_read("C:/Users/16043/Dropbox/Can_BICS_project/osm_infrastructure/data/national/OSM_CAN_BICS_latest.shp")
+
+can_BICS_selected_CSDs <- can_BICS %>%
+  filter(CSDUID %in% csds_select$CSDUID)
+
+# st_write(can_BICS_selected_CSDs %>% st_make_valid(), 
+#          "data/OSM_CAN_BICS_v2_csds.shp",
+#          delete_layer = T)
+
+can_BICS_selected_PCs <- can_BICS %>%
+  st_intersection(population_centres_select)
+
+can_BICS_selected_CSDs_summary <- can_BICS_selected_CSDs %>%
+  mutate(length = as.numeric(st_length(can_BICS_selected_CSDs)) / 1000) %>%
+  st_drop_geometry() %>%
+  group_by(CBICS_comf) %>%
+  summarise(length = sum(length)) %>%
+  mutate(prop = 100 * length / sum(length)) %>%
+  mutate(length = round(length, 0),
+         prop = round(prop, 0)) %>%
+  rename(length_csds = length,
+         prop_csds = prop)
+
+can_BICS_selected_PCs_summary <- can_BICS_selected_PCs %>%
+  mutate(length = as.numeric(st_length(can_BICS_selected_PCs)) / 1000) %>%
+  st_drop_geometry() %>%
+  group_by(CBICS_comf) %>%
+  summarise(length = sum(length)) %>%
+  mutate(prop = 100 * length / sum(length)) %>%
+  mutate(length = round(length, 0),
+         prop = round(prop, 0)) %>%
+  rename(length_pcs = length,
+         prop_pcs = prop)
+
+can_BICS_summary <- can_BICS %>%
+  mutate(length = as.numeric(st_length(can_BICS)) / 1000) %>%
+  st_drop_geometry() %>%
+  group_by(CBICS_comf) %>%
+  summarise(length = sum(length)) %>%
+  mutate(prop = 100 * length / sum(length)) %>%
+  mutate(length = round(length, 0),
+         prop = round(prop, 0)) %>%
+  rename(length_tot = length,
+         prop_tot = prop)
+
+summary <- left_join(can_BICS_summary, 
+                 can_BICS_selected_PCs_summary,
+                 by = "CBICS_comf") %>%
+  left_join(can_BICS_selected_CSDs_summary,
+            by = "CBICS_comf")%>%
+  select(CBICS_comf,
+         length_tot, prop_tot,
+         length_pcs, prop_pcs,
+         length_csds, prop_csds)
+
+kable(summary)
+
+total_can_BICS <- sum(summary[-which(summary$CBICS_comf %in% "Non-Conforming"), ]$length_tot)
+total_can_BICS_pcs <- sum(summary[-which(summary$CBICS_comf %in% "Non-Conforming"), ]$length_pcs)
+total_can_BICS_csds <- sum(summary[-which(summary$CBICS_comf %in% "Non-Conforming"), ]$length_csds)
+
+```
+In version 2 of the OSM Can-BICS dataset, there is a total of 
+`r total_can_BICS` km of Can-BICS conforming infrastructure in Canada. Within 
+the medium and large PCs, `r round(100 * total_can_BICS_pcs / total_can_BICS, 0)` 
+% of Can-BICS conforming infrastructure is captured. Within the selected CSDs, `r round(100 * total_can_BICS_csds / total_can_BICS, 0)` 
+% of Can-BICS conforming infrastructure is captured.
+
+## Statement of data quality for OSM Can-BICS infrastructure data
+
+In an accuracy assessment of the OSM Can-BICS network dataset used to construct the Can-BICS metrics, conducted using a stratified random sample of more than 2000 points in 15 cities using street-level reference imagery, we found an estimated accuracy of 76 ± 3% for presence or absence of infrastructure, 71 ± 4% for comfort class, and 69 ± 4 % (by length) for infrastructure type. Outside of the 15 sample cities, we observed that in rural areas some unpaved multi-use trails that are part of large trail networks (e.g. The Great Trail/Trans Canada Trail) were sometimes misclassified as paved multi-use paths.
+
+## More information
+
+1) Data description (including field descriptions) and full dataset download: https://arcg.is/1X9iem0
+
+2) More information about Can-BICS: https://www.canada.ca/en/public-health/services/reports-publications/health-promotion-chronic-disease-prevention-canada-research-policy-practice/vol-40-no-9-2020/canbics-classification-system-naming-convention-cycling-infrastructure.html.
+We include non-conforming infrastructure as 
+
+3) Code used to generate OSM Can-BICS data: https://github.com/streckereck/osm_can_bics
+
+## Data sources
+
+* Canada Census Digital Boundary Files provided by Statistics Canada. https://www12.statcan.gc.ca/census-recensement/2011/geo/bound-limit/bound-limit-2016-eng.cfm. Acquired March 14, 2022.
+* Street network data by OpenStreetMap Contributors (2022). https://www.openstreetmap.org. Acquired January 25, 2022.
